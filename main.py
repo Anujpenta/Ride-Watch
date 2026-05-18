@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import SessionLocal, LocationRecord, init_db
+import datetime
 
 app = FastAPI()
 
@@ -48,3 +49,17 @@ def update_location(location: LocationUpdate, db: Session = Depends(get_db)):
 def get_locations(db: Session = Depends(get_db)):
     records = db.query(LocationRecord).all()
     return records
+
+@app.get("/locations/{driver_id}")
+def get_driver_locations(driver_id: str, minutes: int = 10, db: Session = Depends(get_db)):
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=minutes)
+    records = db.query(LocationRecord).filter(
+        LocationRecord.driver_id == driver_id,
+        LocationRecord.timestamp >= cutoff
+    ).all()
+    return {
+        "driver_id": driver_id,
+        "last_minutes": minutes,
+        "total_updates": len(records),
+        "locations": records
+    }
