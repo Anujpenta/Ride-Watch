@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import SessionLocal, LocationRecord, init_db
 import datetime
+from anomaly_detector import detect_anomalies
 
 app = FastAPI()
 
@@ -62,4 +63,34 @@ def get_driver_locations(driver_id: str, minutes: int = 10, db: Session = Depend
         "last_minutes": minutes,
         "total_updates": len(records),
         "locations": records
+    }
+
+
+@app.get("/anomalies/{driver_id}")
+def get_anomalies(driver_id: str, minutes: int = 10, db: Session = Depends(get_db)):
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=minutes)
+    records = db.query(LocationRecord).filter(
+        LocationRecord.driver_id == driver_id,
+        LocationRecord.timestamp >= cutoff
+    ).order_by(LocationRecord.timestamp).all()
+
+    locations = [
+        {
+            "id": r.id,
+            "driver_id": r.driver_id,
+            "latitude": r.latitude,
+            "longitude": r.longitude,
+            "speed": r.speed,
+            "timestamp": r.timestamp
+        }
+        for r in records
+    ]
+
+    anomalies = detect_anomalies(locations)
+
+    return {
+        "driver_id": driver_id,
+        "records_analyzed": len(locations),
+        "anomalies_found": len(anomalies),
+        "anomalies": anomalies
     }
