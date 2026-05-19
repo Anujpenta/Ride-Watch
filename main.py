@@ -6,6 +6,7 @@ import datetime
 from anomaly_detector import detect_anomalies
 from fastapi import WebSocket
 import asyncio
+from lstm_model import train_model, predict_anomalies
 
 app = FastAPI()
 
@@ -127,3 +128,61 @@ async def driver_websocket(websocket: WebSocket, driver_id: str, db: Session = D
     except Exception as e:
         print(f"Driver {driver_id} disconnected: {e}")
         active_connections.remove(websocket)
+
+
+
+@app.post("/train/{driver_id}")
+def train_driver_model(driver_id: str, db: Session = Depends(get_db)):
+    records = db.query(LocationRecord).filter(
+        LocationRecord.driver_id == driver_id
+    ).order_by(LocationRecord.timestamp).all()
+
+    locations = [
+        {
+            "id": r.id,
+            "driver_id": r.driver_id,
+            "latitude": r.latitude,
+            "longitude": r.longitude,
+            "speed": r.speed,
+            "timestamp": r.timestamp
+        }
+        for r in records
+    ]
+
+    model, scaler, message = train_model(locations)
+
+    return {
+        "driver_id": driver_id,
+        "records_used": len(locations),
+        "status": message
+    }
+
+@app.get("/anomalies/lstm/{driver_id}")
+def get_lstm_anomalies(driver_id: str, minutes: int = 30, db: Session = Depends(get_db)):
+    cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=minutes)
+    records = db.query(LocationRecord).filter(
+        LocationRecord.driver_id == driver_id,
+        LocationRecord.timestamp >= cutoff
+    ).order_by(LocationRecord.timestamp).all()
+
+    locations = [
+        {
+            "id": r.id,
+            "driver_id": r.driver_id,
+            "latitude": r.latitude,
+            "longitude": r.longitude,
+            "speed": r.speed,
+            "timestamp": r.timestamp
+        }
+        for r in records
+    ]
+
+    anomalies, message = predict_anomalies(locations)
+
+    return {
+        "driver_id": driver_id,
+        "records_analyzed": len(locations),
+        "anomalies_found": len(anomalies),
+        "message": message,
+        "anomalies": anomalies
+    }
