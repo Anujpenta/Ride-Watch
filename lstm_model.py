@@ -1,24 +1,34 @@
 import numpy as np
-import torch
-import torch.nn as nn
 from sklearn.preprocessing import MinMaxScaler
 import pickle
 import os
 
-class DriverLSTM(nn.Module):
-    def __init__(self, input_size=3, hidden_size=64, num_layers=2):
-        super(DriverLSTM, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, input_size)
+TORCH_AVAILABLE = False
+try:
+    import torch
+    import torch.nn as nn
+    TORCH_AVAILABLE = True
+except ImportError:
+    pass
 
-    def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-        out, _ = self.lstm(x, (h0, c0))
-        out = self.fc(out[:, -1, :])
-        return out
+class DriverLSTM:
+    pass
+
+if TORCH_AVAILABLE:
+    class DriverLSTM(torch.nn.Module):
+        def __init__(self, input_size=3, hidden_size=64, num_layers=2):
+            super(DriverLSTM, self).__init__()
+            self.hidden_size = hidden_size
+            self.num_layers = num_layers
+            self.lstm = torch.nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+            self.fc = torch.nn.Linear(hidden_size, input_size)
+
+        def forward(self, x):
+            h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+            c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+            out, _ = self.lstm(x, (h0, c0))
+            out = self.fc(out[:, -1, :])
+            return out
 
 def prepare_sequences(data: list, seq_length: int = 5):
     sequences = []
@@ -31,6 +41,8 @@ def prepare_sequences(data: list, seq_length: int = 5):
     return np.array(sequences), np.array(targets)
 
 def train_model(locations: list):
+    if not TORCH_AVAILABLE:
+        return None, None, "PyTorch not available in this environment"
     if len(locations) < 20:
         return None, None, "Not enough data — need at least 20 location updates"
 
@@ -49,7 +61,7 @@ def train_model(locations: list):
     y_tensor = torch.FloatTensor(y)
 
     model = DriverLSTM(input_size=3, hidden_size=64, num_layers=2)
-    criterion = nn.MSELoss()
+    criterion = torch.nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     model.train()
@@ -59,7 +71,6 @@ def train_model(locations: list):
         loss = criterion(output, y_tensor)
         loss.backward()
         optimizer.step()
-
         if (epoch + 1) % 20 == 0:
             print(f"Epoch {epoch+1}/100, Loss: {loss.item():.6f}")
 
@@ -70,6 +81,8 @@ def train_model(locations: list):
     return model, scaler, "Model trained successfully"
 
 def predict_anomalies(locations: list):
+    if not TORCH_AVAILABLE:
+        return [], "PyTorch not available in this environment"
     if not os.path.exists("lstm_model.pth"):
         return [], "Model not trained yet — call /train/{driver_id} first"
 

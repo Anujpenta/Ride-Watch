@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    container_name: ridewatch-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./ridewatch.db:/app/ridewatch.db
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
