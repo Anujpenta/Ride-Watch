@@ -1,14 +1,35 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, WebSocket
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database import SessionLocal, LocationRecord, init_db
 import datetime
-from anomaly_detector import detect_anomalies
-from fastapi import WebSocket
 import asyncio
+import time
+from anomaly_detector import detect_anomalies
 from lstm_model import train_model, predict_anomalies
 
 app = FastAPI()
+
+from prometheus_fastapi_instrumentator import Instrumentator
+Instrumentator().instrument(app).expose(app)
+
+from prometheus_client import Counter, Histogram
+
+anomalies_detected = Counter(
+    "ridewatch_anomalies_detected_total",
+    "Total anomalies detected",
+    ["type"]
+)
+
+location_updates = Counter(
+    "ridewatch_location_updates_total",
+    "Total location updates received"
+)
+
+model_inference_time = Histogram(
+    "ridewatch_model_inference_seconds",
+    "Time taken for anomaly detection"
+)
 
 init_db()
 
@@ -39,6 +60,7 @@ def update_location(location: LocationUpdate, db: Session = Depends(get_db)):
     )
     db.add(record)
     db.commit()
+    location_updates.inc()
     return {
         "status": "saved",
         "driver_id": location.driver_id,
@@ -68,7 +90,6 @@ def get_driver_locations(driver_id: str, minutes: int = 10, db: Session = Depend
         "locations": records
     }
 
-
 @app.get("/anomalies/{driver_id}")
 def get_anomalies(driver_id: str, minutes: int = 10, db: Session = Depends(get_db)):
     cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=minutes)
@@ -89,7 +110,12 @@ def get_anomalies(driver_id: str, minutes: int = 10, db: Session = Depends(get_d
         for r in records
     ]
 
+    start = time.time()
     anomalies = detect_anomalies(locations)
+    model_inference_time.observe(time.time() - start)
+
+    for a in anomalies:
+        anomalies_detected.labels(type="rule_based").inc()
 
     return {
         "driver_id": driver_id,
@@ -98,7 +124,6 @@ def get_anomalies(driver_id: str, minutes: int = 10, db: Session = Depends(get_d
         "anomalies": anomalies
     }
 
-# Store connected riders
 active_connections: list[WebSocket] = []
 
 @app.websocket("/ws/driver/{driver_id}")
@@ -106,14 +131,13 @@ async def driver_websocket(websocket: WebSocket, driver_id: str, db: Session = D
     await websocket.accept()
     active_connections.append(websocket)
     print(f"Driver {driver_id} connected via WebSocket")
-    
+
     try:
         while True:
-            # Get latest location from database
             record = db.query(LocationRecord).filter(
                 LocationRecord.driver_id == driver_id
             ).order_by(LocationRecord.id.desc()).first()
-            
+
             if record:
                 await websocket.send_json({
                     "driver_id": record.driver_id,
@@ -122,14 +146,12 @@ async def driver_websocket(websocket: WebSocket, driver_id: str, db: Session = D
                     "speed": record.speed,
                     "timestamp": str(record.timestamp)
                 })
-            
+
             await asyncio.sleep(2)
-            
+
     except Exception as e:
         print(f"Driver {driver_id} disconnected: {e}")
         active_connections.remove(websocket)
-
-
 
 @app.post("/train/{driver_id}")
 def train_driver_model(driver_id: str, db: Session = Depends(get_db)):
