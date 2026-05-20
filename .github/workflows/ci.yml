@@ -1,0 +1,30 @@
+name: RideWatch CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        pip install fastapi uvicorn sqlalchemy \
+          aiosqlite pydantic requests websockets \
+          scikit-learn numpy pandas \
+          prometheus-fastapi-instrumentator pytest httpx
+
+    - name: Run tests
+      run: pytest tests/ -v
