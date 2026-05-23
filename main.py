@@ -7,6 +7,7 @@ import asyncio
 import time
 from anomaly_detector import detect_anomalies
 from lstm_model import train_model, predict_anomalies
+from redis_client import publish_location
 
 app = FastAPI()
 
@@ -61,6 +62,12 @@ def update_location(location: LocationUpdate, db: Session = Depends(get_db)):
     db.add(record)
     db.commit()
     location_updates.inc()
+    publish_location(location.driver_id, {
+        "driver_id": location.driver_id,
+        "latitude": location.latitude,
+        "longitude": location.longitude,
+        "speed": location.speed
+    })
     return {
         "status": "saved",
         "driver_id": location.driver_id,
