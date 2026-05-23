@@ -6,7 +6,8 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir fastapi uvicorn sqlalchemy \
     aiosqlite pydantic requests websockets \
-    scikit-learn numpy pandas
+    scikit-learn numpy pandas \
+    psycopg2-binary redis prometheus-fastapi-instrumentator
 
 COPY . .
 

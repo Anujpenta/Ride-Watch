@@ -1,11 +1,37 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ridewatch-postgres
+    environment:
+      POSTGRES_USER: ridewatch
+      POSTGRES_PASSWORD: ridewatch123
+      POSTGRES_DB: ridewatch
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    container_name: ridewatch-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
   api:
     build: .
     container_name: ridewatch-api
     ports:
       - "8000:8000"
-    volumes:
-      - ./ridewatch.db:/app/ridewatch.db
     environment:
       - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://ridewatch:ridewatch123@postgres:5432/ridewatch
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
     restart: unless-stopped
+
+volumes:
+  postgres_data:

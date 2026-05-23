@@ -1,8 +1,12 @@
 from sqlalchemy import create_engine, Column, String, Float, DateTime, Integer
 from sqlalchemy.orm import sessionmaker, declarative_base
 import datetime
+import os
 
-DATABASE_URL = "postgresql://ridewatch:ridewatch123@localhost:5432/ridewatch"
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://ridewatch:ridewatch123@localhost:5432/ridewatch"
+)
 
 engine = create_engine(DATABASE_URL)
 
