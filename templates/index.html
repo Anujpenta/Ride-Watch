@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RideWatch Live Dashboard</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #0f0f0f; color: #fff; }
+        #header {
+            padding: 16px 24px;
+            background: #1a1a2e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #e94560;
+        }
+        #header h1 { font-size: 22px; color: #e94560; }
+        #status { font-size: 14px; color: #aaa; }
+        #status span { color: #4ade80; font-weight: bold; }
+        #map { height: calc(100vh - 120px); width: 100%; }
+        #stats {
+            padding: 10px 24px;
+            background: #1a1a2e;
+            display: flex;
+            gap: 32px;
+            font-size: 14px;
+        }
+        .stat { color: #aaa; }
+        .stat b { color: #fff; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>🚖 RideWatch Live Dashboard</h1>
+        <div id="status">Status: <span id="conn-status">Connecting...</span></div>
+    </div>
+    <div id="stats">
+        <div class="stat">Driver: <b id="stat-driver">—</b></div>
+        <div class="stat">Speed: <b id="stat-speed">— km/h</b></div>
+        <div class="stat">Lat: <b id="stat-lat">—</b></div>
+        <div class="stat">Lng: <b id="stat-lng">—</b></div>
+        <div class="stat">Updates: <b id="stat-updates">0</b></div>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([17.4435, 78.3772], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        const icon = L.divIcon({
+            html: '🚖',
+            className: '',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15]
+        });
+
+        let marker = null;
+        let pathPoints = [];
+        let polyline = null;
+        let updateCount = 0;
+
+        const ws = new WebSocket('ws://127.0.0.1:8000/ws/driver/driver_001');
+
+        ws.onopen = () => {
+            document.getElementById('conn-status').textContent = 'LIVE';
+            document.getElementById('conn-status').style.color = '#4ade80';
+        };
+
+        ws.onclose = () => {
+            document.getElementById('conn-status').textContent = 'Disconnected';
+            document.getElementById('conn-status').style.color = '#ef4444';
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const lat = data.latitude;
+            const lng = data.longitude;
+
+            if (!marker) {
+                marker = L.marker([lat, lng], { icon }).addTo(map);
+            } else {
+                marker.setLatLng([lat, lng]);
+            }
+
+            pathPoints.push([lat, lng]);
+            if (polyline) map.removeLayer(polyline);
+            polyline = L.polyline(pathPoints, {
+                color: '#e94560', weight: 3, opacity: 0.7
+            }).addTo(map);
+
+            map.panTo([lat, lng]);
+
+            updateCount++;
+            document.getElementById('stat-driver').textContent = data.driver_id;
+            document.getElementById('stat-speed').textContent = data.speed + ' km/h';
+            document.getElementById('stat-lat').textContent = lat.toFixed(4);
+            document.getElementById('stat-lng').textContent = lng.toFixed(4);
+            document.getElementById('stat-updates').textContent = updateCount;
+        };
+    </script>
+</body>
+</html>

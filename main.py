@@ -9,7 +9,16 @@ from anomaly_detector import detect_anomalies
 from lstm_model import train_model, predict_anomalies
 from redis_client import publish_location
 
+
 app = FastAPI()
+
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    with open("templates/index.html") as f:
+        return f.read()
 
 from prometheus_fastapi_instrumentator import Instrumentator
 Instrumentator().instrument(app).expose(app)
