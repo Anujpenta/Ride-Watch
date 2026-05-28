@@ -3,8 +3,9 @@
 A real-time ride-hailing backend with live GPS tracking, WebSocket streaming, Redis pub/sub broadcasting, and ML-powered anomaly detection.
 
 ## Live Dashboard
+🌐 **Live:** https://ride-watch-production-6018.up.railway.app/dashboard
 
-Open `http://localhost:8000/dashboard` to watch a driver moving through Hyderabad in real time on an interactive map.
+Open the link to watch a driver moving through Hyderabad in real time on an interactive map.
 
 ## Architecture
 
