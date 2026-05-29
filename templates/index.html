@@ -66,7 +66,8 @@
         let totalUpdates = 0;
 
         function connectDriver(driverId) {
-            const ws = new WebSocket(`ws://${location.host}/ws/driver/${driverId}`);
+            const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(`${protocol}//${location.host}/ws/driver/${driverId}`);
             const driver = DRIVERS[driverId];
 
             const icon = L.divIcon({
