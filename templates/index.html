@@ -17,91 +17,93 @@
             border-bottom: 2px solid #e94560;
         }
         #header h1 { font-size: 22px; color: #e94560; }
-        #status { font-size: 14px; color: #aaa; }
-        #status span { color: #4ade80; font-weight: bold; }
         #map { height: calc(100vh - 120px); width: 100%; }
         #stats {
             padding: 10px 24px;
             background: #1a1a2e;
             display: flex;
-            gap: 32px;
-            font-size: 14px;
+            gap: 24px;
+            font-size: 13px;
+            overflow-x: auto;
         }
-        .stat { color: #aaa; }
-        .stat b { color: #fff; font-size: 16px; }
+        .stat { color: #aaa; white-space: nowrap; }
+        .stat b { font-size: 15px; }
+        .d1 { color: #e94560; }
+        .d2 { color: #4ade80; }
+        .d3 { color: #60a5fa; }
     </style>
 </head>
 <body>
     <div id="header">
         <h1>🚖 RideWatch Live Dashboard</h1>
-        <div id="status">Status: <span id="conn-status">Connecting...</span></div>
+        <div id="status" style="font-size:14px; color:#aaa">
+            <span class="d1">● driver_001</span> &nbsp;
+            <span class="d2">● driver_002</span> &nbsp;
+            <span class="d3">● driver_003</span>
+        </div>
     </div>
     <div id="stats">
-        <div class="stat">Driver: <b id="stat-driver">—</b></div>
-        <div class="stat">Speed: <b id="stat-speed">— km/h</b></div>
-        <div class="stat">Lat: <b id="stat-lat">—</b></div>
-        <div class="stat">Lng: <b id="stat-lng">—</b></div>
-        <div class="stat">Updates: <b id="stat-updates">0</b></div>
+        <div class="stat">driver_001 speed: <b class="d1" id="speed-driver_001">— km/h</b></div>
+        <div class="stat">driver_002 speed: <b class="d2" id="speed-driver_002">— km/h</b></div>
+        <div class="stat">driver_003 speed: <b class="d3" id="speed-driver_003">— km/h</b></div>
+        <div class="stat">Total Updates: <b id="total-updates">0</b></div>
     </div>
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        const map = L.map('map').setView([17.4435, 78.3772], 13);
+        const map = L.map('map').setView([17.4100, 78.4500], 12);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap'
         }).addTo(map);
 
-        const icon = L.divIcon({
-            html: '🚖',
-            className: '',
-            iconSize: [30, 30],
-            iconAnchor: [15, 15]
-        });
-
-        let marker = null;
-        let pathPoints = [];
-        let polyline = null;
-        let updateCount = 0;
-
-        const ws = new WebSocket('ws://127.0.0.1:8000/ws/driver/driver_001');
-
-        ws.onopen = () => {
-            document.getElementById('conn-status').textContent = 'LIVE';
-            document.getElementById('conn-status').style.color = '#4ade80';
+        const DRIVERS = {
+            "driver_001": { emoji: "🚖", color: "#e94560", marker: null, path: [], polyline: null },
+            "driver_002": { emoji: "🚕", color: "#4ade80", marker: null, path: [], polyline: null },
+            "driver_003": { emoji: "🚗", color: "#60a5fa", marker: null, path: [], polyline: null },
         };
 
-        ws.onclose = () => {
-            document.getElementById('conn-status').textContent = 'Disconnected';
-            document.getElementById('conn-status').style.color = '#ef4444';
-        };
+        let totalUpdates = 0;
 
-        ws.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            const lat = data.latitude;
-            const lng = data.longitude;
+        function connectDriver(driverId) {
+            const ws = new WebSocket(`ws://${location.host}/ws/driver/${driverId}`);
+            const driver = DRIVERS[driverId];
 
-            if (!marker) {
-                marker = L.marker([lat, lng], { icon }).addTo(map);
-            } else {
-                marker.setLatLng([lat, lng]);
-            }
+            const icon = L.divIcon({
+                html: driver.emoji,
+                className: '',
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
+            });
 
-            pathPoints.push([lat, lng]);
-            if (polyline) map.removeLayer(polyline);
-            polyline = L.polyline(pathPoints, {
-                color: '#e94560', weight: 3, opacity: 0.7
-            }).addTo(map);
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                const lat = data.latitude;
+                const lng = data.longitude;
 
-            map.panTo([lat, lng]);
+                if (!driver.marker) {
+                    driver.marker = L.marker([lat, lng], { icon }).addTo(map);
+                } else {
+                    driver.marker.setLatLng([lat, lng]);
+                }
 
-            updateCount++;
-            document.getElementById('stat-driver').textContent = data.driver_id;
-            document.getElementById('stat-speed').textContent = data.speed + ' km/h';
-            document.getElementById('stat-lat').textContent = lat.toFixed(4);
-            document.getElementById('stat-lng').textContent = lng.toFixed(4);
-            document.getElementById('stat-updates').textContent = updateCount;
-        };
+                driver.path.push([lat, lng]);
+                if (driver.polyline) map.removeLayer(driver.polyline);
+                driver.polyline = L.polyline(driver.path, {
+                    color: driver.color, weight: 3, opacity: 0.7
+                }).addTo(map);
+
+                totalUpdates++;
+                document.getElementById(`speed-${driverId}`).textContent = data.speed + ' km/h';
+                document.getElementById('total-updates').textContent = totalUpdates;
+            };
+
+            ws.onclose = () => {
+                setTimeout(() => connectDriver(driverId), 3000);
+            };
+        }
+
+        Object.keys(DRIVERS).forEach(connectDriver);
     </script>
 </body>
 </html>

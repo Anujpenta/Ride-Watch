@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse
 
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard():
-    with open("templates/index.html") as f:
+    with open("templates/index.html", encoding="utf-8") as f:
         return f.read()
 
 from prometheus_fastapi_instrumentator import Instrumentator
