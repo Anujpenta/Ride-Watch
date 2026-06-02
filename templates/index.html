@@ -71,11 +71,11 @@ const ws = new WebSocket(`${protocol}//${location.host}/ws/driver/${driverId}`);
             const driver = DRIVERS[driverId];
 
             const icon = L.divIcon({
-                html: driver.emoji,
-                className: '',
-                iconSize: [30, 30],
-                iconAnchor: [15, 15]
-            });
+    html: `<div style="font-size:28px; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.8));">${driver.emoji}</div>`,
+    className: '',
+    iconSize: [40, 40],
+    iconAnchor: [20, 20]
+});
 
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
@@ -91,8 +91,8 @@ const ws = new WebSocket(`${protocol}//${location.host}/ws/driver/${driverId}`);
                 driver.path.push([lat, lng]);
                 if (driver.polyline) map.removeLayer(driver.polyline);
                 driver.polyline = L.polyline(driver.path, {
-                    color: driver.color, weight: 3, opacity: 0.7
-                }).addTo(map);
+    color: driver.color, weight: 6, opacity: 1.0
+}).addTo(map);
 
                 totalUpdates++;
                 document.getElementById(`speed-${driverId}`).textContent = data.speed + ' km/h';
