@@ -13,20 +13,35 @@ WAYPOINTS = {
         {"lat": 17.3950, "lng": 78.4350},  # Begumpet
         {"lat": 17.3750, "lng": 78.4600},  # Paradise
         {"lat": 17.3600, "lng": 78.4750},  # Charminar
+        {"lat": 17.3800, "lng": 78.4900},  # Dilsukhnagar
+        {"lat": 17.4000, "lng": 78.5100},  # Uppal
+        {"lat": 17.4300, "lng": 78.4800},  # Tarnaka
+        {"lat": 17.4500, "lng": 78.4300},  # Secunderabad
+        {"lat": 17.4435, "lng": 78.3772},  # Back to Hitec City
     ],
     "driver_002": [
-        {"lat": 17.3850, "lng": 78.4867},  # Charminar area
+        {"lat": 17.3850, "lng": 78.4867},  # Charminar
         {"lat": 17.4050, "lng": 78.4650},  # Nampally
         {"lat": 17.4250, "lng": 78.4450},  # Khairatabad
         {"lat": 17.4450, "lng": 78.4250},  # SR Nagar
         {"lat": 17.4750, "lng": 78.3950},  # Miyapur
+        {"lat": 17.4600, "lng": 78.3800},  # BHEL
+        {"lat": 17.4400, "lng": 78.3700},  # Gachibowli
+        {"lat": 17.4200, "lng": 78.3900},  # Financial District
+        {"lat": 17.4000, "lng": 78.4200},  # Tolichowki
+        {"lat": 17.3850, "lng": 78.4867},  # Back to Charminar
     ],
     "driver_003": [
         {"lat": 17.3616, "lng": 78.4747},  # Old City
         {"lat": 17.3900, "lng": 78.5000},  # Dilsukhnagar
         {"lat": 17.4100, "lng": 78.5200},  # Uppal
         {"lat": 17.4400, "lng": 78.5100},  # Habsiguda
-        {"lat": 17.4500, "lng": 78.5000},  # Tarnaka
+        {"lat": 17.4600, "lng": 78.4900},  # Tarnaka
+        {"lat": 17.4700, "lng": 78.4600},  # Malkajgiri
+        {"lat": 17.4500, "lng": 78.4300},  # Secunderabad
+        {"lat": 17.4200, "lng": 78.4500},  # Somajiguda
+        {"lat": 17.3900, "lng": 78.4600},  # Abids
+        {"lat": 17.3616, "lng": 78.4747},  # Back to Old City
     ],
 }
 
@@ -58,10 +73,9 @@ def simulate_driver(driver_id: str):
     print(f"[{driver_id}] Route ready with {len(route)} points")
     
     step = 0
-    direction = 1
 
     while True:
-        location = route[step]
+        location = route[step % len(route)]
         speed = round(random.uniform(20, 50), 1)
 
         payload = {
@@ -82,11 +96,7 @@ def simulate_driver(driver_id: str):
             time.sleep(5)
             continue
 
-        step += direction
-        if step >= len(route) - 1:
-            direction = -1  # reached end, reverse
-        elif step <= 0:
-            direction = 1   # reached start, go forward
+        step += 1
 
         time.sleep(0.8)
 
