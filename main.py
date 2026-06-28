@@ -1,13 +1,14 @@
 from fastapi import FastAPI, Depends, WebSocket
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from database import SessionLocal, LocationRecord, init_db
+from database import SessionLocal, LocationRecord, Driver, Trip, init_db
 import datetime
 import asyncio
 import time
 from anomaly_detector import detect_anomalies
 from lstm_model import train_model, predict_anomalies
 from redis_client import publish_location
+from ride_matching import sync_drivers_from_locations, find_nearest_idle_driver
 
 
 app = FastAPI()
@@ -223,4 +224,50 @@ def get_lstm_anomalies(driver_id: str, minutes: int = 30, db: Session = Depends(
         "anomalies_found": len(anomalies),
         "message": message,
         "anomalies": anomalies
+    }
+
+
+class RideRequest(BaseModel):
+    rider_id: str
+    pickup_lat: float
+    pickup_lng: float
+    dropoff_lat: float
+    dropoff_lng: float
+
+@app.post("/ride/request")
+def request_ride(ride: RideRequest, db: Session = Depends(get_db)):
+    sync_drivers_from_locations(db)
+
+    result = find_nearest_idle_driver(db, ride.pickup_lat, ride.pickup_lng)
+
+    if result is None or result[0] is None:
+        return {"status": "no_drivers_available"}
+
+    driver, distance_km = result
+
+    trip = Trip(
+        rider_id=ride.rider_id,
+        driver_id=driver.driver_id,
+        pickup_lat=ride.pickup_lat,
+        pickup_lng=ride.pickup_lng,
+        dropoff_lat=ride.dropoff_lat,
+        dropoff_lng=ride.dropoff_lng,
+        status="matched"
+    )
+    db.add(trip)
+
+    driver.status = "en_route_to_pickup"
+
+    db.commit()
+    db.refresh(trip)
+
+    return {
+        "status": "matched",
+        "trip_id": trip.id,
+        "driver_id": driver.driver_id,
+        "driver_distance_km": round(distance_km, 2),
+        "driver_location": {
+            "lat": driver.latitude,
+            "lng": driver.longitude
+        }
     }
