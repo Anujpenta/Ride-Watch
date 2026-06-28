@@ -9,6 +9,7 @@ from anomaly_detector import detect_anomalies
 from lstm_model import train_model, predict_anomalies
 from redis_client import publish_location
 from ride_matching import sync_drivers_from_locations, find_nearest_idle_driver
+from fare_estimator import get_route_info, calculate_fare
 
 
 app = FastAPI()
@@ -243,7 +244,15 @@ def request_ride(ride: RideRequest, db: Session = Depends(get_db)):
     if result is None or result[0] is None:
         return {"status": "no_drivers_available"}
 
-    driver, distance_km = result
+    driver, distance_to_driver = result
+
+    distance_km, duration_min = get_route_info(
+        ride.pickup_lat, ride.pickup_lng, ride.dropoff_lat, ride.dropoff_lng
+    )
+
+    fare = None
+    if distance_km is not None:
+        fare = calculate_fare(distance_km, duration_min)
 
     trip = Trip(
         rider_id=ride.rider_id,
@@ -252,6 +261,9 @@ def request_ride(ride: RideRequest, db: Session = Depends(get_db)):
         pickup_lng=ride.pickup_lng,
         dropoff_lat=ride.dropoff_lat,
         dropoff_lng=ride.dropoff_lng,
+        distance_km=distance_km,
+        duration_min=duration_min,
+        fare=fare,
         status="matched"
     )
     db.add(trip)
@@ -265,9 +277,12 @@ def request_ride(ride: RideRequest, db: Session = Depends(get_db)):
         "status": "matched",
         "trip_id": trip.id,
         "driver_id": driver.driver_id,
-        "driver_distance_km": round(distance_km, 2),
+        "driver_pickup_distance_km": round(distance_to_driver, 2),
         "driver_location": {
             "lat": driver.latitude,
             "lng": driver.longitude
-        }
+        },
+        "trip_distance_km": distance_km,
+        "trip_duration_min": duration_min,
+        "estimated_fare": fare
     }
