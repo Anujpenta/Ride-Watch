@@ -33,6 +33,8 @@ class Driver(Base):
     status = Column(String, default="idle")  # idle, en_route_to_pickup, on_trip
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
+    dest_lat = Column(Float, nullable=True)
+    dest_lng = Column(Float, nullable=True)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 
