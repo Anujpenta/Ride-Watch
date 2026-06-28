@@ -269,6 +269,8 @@ def request_ride(ride: RideRequest, db: Session = Depends(get_db)):
     db.add(trip)
 
     driver.status = "en_route_to_pickup"
+    driver.dest_lat = ride.pickup_lat
+    driver.dest_lng = ride.pickup_lng
 
     db.commit()
     db.refresh(trip)
@@ -286,6 +288,8 @@ def request_ride(ride: RideRequest, db: Session = Depends(get_db)):
         "trip_duration_min": duration_min,
         "estimated_fare": fare
     }
+
+
 @app.get("/driver/destination/{driver_id}")
 def get_driver_destination(driver_id: str, db: Session = Depends(get_db)):
     driver = db.query(Driver).filter(Driver.driver_id == driver_id).first()
