@@ -17,7 +17,6 @@
             border-bottom: 2px solid #e94560;
         }
         #header h1 { font-size: 22px; color: #e94560; }
-        #map { height: calc(100vh - 120px); width: 100%; }
         #stats {
             padding: 10px 24px;
             background: #1a1a2e;
@@ -31,6 +30,58 @@
         .d1 { color: #e94560; }
         .d2 { color: #4ade80; }
         .d3 { color: #60a5fa; }
+
+        #main { display: flex; height: calc(100vh - 120px); }
+        #map { flex: 1; height: 100%; }
+        #sidebar {
+            width: 320px;
+            background: #1a1a2e;
+            padding: 16px;
+            overflow-y: auto;
+            border-left: 2px solid #2a2a3e;
+        }
+
+        .panel-title { font-size: 16px; color: #e94560; margin-bottom: 12px; font-weight: bold; }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 8px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-pickup { background: #4ade80; color: #0f0f0f; }
+        .btn-dropoff { background: #f97316; color: #0f0f0f; }
+        .btn-request { background: #e94560; color: #fff; }
+        .btn.active { box-shadow: 0 0 0 3px rgba(255,255,255,0.4); }
+
+        .info-row {
+            font-size: 13px;
+            color: #aaa;
+            margin: 6px 0;
+            padding: 8px;
+            background: #14141f;
+            border-radius: 6px;
+        }
+        .info-row b { color: #fff; }
+
+        #result {
+            margin-top: 16px;
+            padding: 14px;
+            background: #14141f;
+            border-radius: 8px;
+            border: 1px solid #2a2a3e;
+            display: none;
+        }
+        #result.show { display: block; }
+        #result .row { font-size: 13px; color: #aaa; margin: 6px 0; }
+        #result .row b { color: #4ade80; font-size: 15px; }
+        #result .fare { font-size: 22px; color: #e94560; font-weight: bold; margin-top: 8px; }
+        #hint { font-size: 12px; color: #777; margin-top: 4px; margin-bottom: 12px; }
     </style>
 </head>
 <body>
@@ -48,7 +99,32 @@
         <div class="stat">driver_003 speed: <b class="d3" id="speed-driver_003">— km/h</b></div>
         <div class="stat">Total Updates: <b id="total-updates">0</b></div>
     </div>
-    <div id="map"></div>
+
+    <div id="main">
+        <div id="map"></div>
+        <div id="sidebar">
+            <div class="panel-title">📍 Request a Ride</div>
+
+            <button class="btn btn-pickup" id="btn-pickup">Set Pickup Point</button>
+            <div id="hint">Click the button, then click on the map.</div>
+
+            <button class="btn btn-dropoff" id="btn-dropoff">Set Dropoff Point</button>
+            <div id="hint">Click the button, then click on the map.</div>
+
+            <div class="info-row" id="pickup-info">Pickup: <b>not set</b></div>
+            <div class="info-row" id="dropoff-info">Dropoff: <b>not set</b></div>
+
+            <button class="btn btn-request" id="btn-request" disabled>🚖 Request Ride</button>
+
+            <div id="result">
+                <div class="row">Matched Driver: <b id="r-driver">—</b></div>
+                <div class="row">Driver is <b id="r-pickup-dist">—</b> km away</div>
+                <div class="row">Trip Distance: <b id="r-distance">—</b> km</div>
+                <div class="row">Estimated Time: <b id="r-duration">—</b> min</div>
+                <div class="fare" id="r-fare">—</div>
+            </div>
+        </div>
+    </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
@@ -108,6 +184,104 @@
         }
 
         Object.keys(DRIVERS).forEach(connectDriver);
+
+        // ---------- RIDE REQUEST UI ----------
+
+        let pickupPoint = null;
+        let dropoffPoint = null;
+        let pickupMarker = null;
+        let dropoffMarker = null;
+        let tripLine = null;
+        let activeMode = null;
+
+        const btnPickup = document.getElementById('btn-pickup');
+        const btnDropoff = document.getElementById('btn-dropoff');
+        const btnRequest = document.getElementById('btn-request');
+
+        btnPickup.addEventListener('click', () => {
+            activeMode = 'pickup';
+            btnPickup.classList.add('active');
+            btnDropoff.classList.remove('active');
+        });
+
+        btnDropoff.addEventListener('click', () => {
+            activeMode = 'dropoff';
+            btnDropoff.classList.add('active');
+            btnPickup.classList.remove('active');
+        });
+
+        const pickupIcon = L.divIcon({
+            html: `<div style="font-size:26px;">📍</div>`,
+            className: '', iconSize: [30, 30], iconAnchor: [15, 28]
+        });
+        const dropoffIcon = L.divIcon({
+            html: `<div style="font-size:26px;">🏁</div>`,
+            className: '', iconSize: [30, 30], iconAnchor: [15, 28]
+        });
+
+        map.on('click', (e) => {
+            if (activeMode === 'pickup') {
+                pickupPoint = e.latlng;
+                if (pickupMarker) map.removeLayer(pickupMarker);
+                pickupMarker = L.marker(pickupPoint, { icon: pickupIcon }).addTo(map);
+                document.getElementById('pickup-info').innerHTML =
+                    `Pickup: <b>${pickupPoint.lat.toFixed(4)}, ${pickupPoint.lng.toFixed(4)}</b>`;
+                btnPickup.classList.remove('active');
+                activeMode = null;
+            } else if (activeMode === 'dropoff') {
+                dropoffPoint = e.latlng;
+                if (dropoffMarker) map.removeLayer(dropoffMarker);
+                dropoffMarker = L.marker(dropoffPoint, { icon: dropoffIcon }).addTo(map);
+                document.getElementById('dropoff-info').innerHTML =
+                    `Dropoff: <b>${dropoffPoint.lat.toFixed(4)}, ${dropoffPoint.lng.toFixed(4)}</b>`;
+                btnDropoff.classList.remove('active');
+                activeMode = null;
+            }
+
+            btnRequest.disabled = !(pickupPoint && dropoffPoint);
+        });
+
+        btnRequest.addEventListener('click', async () => {
+            btnRequest.disabled = true;
+            btnRequest.textContent = 'Finding driver...';
+
+            try {
+                const res = await fetch('/ride/request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        rider_id: 'rider_' + Math.floor(Math.random() * 100000),
+                        pickup_lat: pickupPoint.lat,
+                        pickup_lng: pickupPoint.lng,
+                        dropoff_lat: dropoffPoint.lat,
+                        dropoff_lng: dropoffPoint.lng
+                    })
+                });
+                const data = await res.json();
+
+                if (data.status === 'no_drivers_available') {
+                    alert('No drivers available right now. Try again shortly.');
+                } else {
+                    document.getElementById('r-driver').textContent = data.driver_id;
+                    document.getElementById('r-pickup-dist').textContent = data.driver_pickup_distance_km;
+                    document.getElementById('r-distance').textContent = data.trip_distance_km;
+                    document.getElementById('r-duration').textContent = data.trip_duration_min;
+                    document.getElementById('r-fare').textContent = '₹' + data.estimated_fare;
+                    document.getElementById('result').classList.add('show');
+
+                    if (tripLine) map.removeLayer(tripLine);
+                    tripLine = L.polyline(
+                        [[data.driver_location.lat, data.driver_location.lng], pickupPoint, dropoffPoint],
+                        { color: '#facc15', weight: 3, dashArray: '8,8' }
+                    ).addTo(map);
+                }
+            } catch (err) {
+                alert('Request failed: ' + err);
+            } finally {
+                btnRequest.disabled = false;
+                btnRequest.textContent = '🚖 Request Ride';
+            }
+        });
     </script>
 </body>
 </html>
