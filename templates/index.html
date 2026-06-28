@@ -89,7 +89,7 @@
                 }
 
                 driver.path.push([lat, lng]);
-                if (driver.path.length > 100) {
+                if (driver.path.length > 300) {
                     driver.path.shift();
                 }
                 if (driver.polyline) map.removeLayer(driver.polyline);
