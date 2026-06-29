@@ -48,11 +48,11 @@ WAYPOINTS = {
 def get_road_route(waypoints):
     coords = ";".join([f"{p['lng']},{p['lat']}" for p in waypoints])
     url = f"http://router.project-osrm.org/route/v1/driving/{coords}?overview=full&geometries=geojson&steps=false"
-
+    
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-
+        
         if data["code"] == "Ok":
             coordinates = data["routes"][0]["geometry"]["coordinates"]
             route = [{"lat": c[1], "lng": c[0]} for c in coordinates]
@@ -65,101 +65,40 @@ def get_road_route(waypoints):
         print(f"OSRM fetch failed: {e}, using straight line")
         return waypoints
 
-
-def check_destination(driver_id):
-    """Ask the API if this driver has been assigned a ride destination."""
-    try:
-        response = requests.get(f"{BASE_URL}/driver/destination/{driver_id}", timeout=5)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        print(f"[{driver_id}] Destination check failed: {e}")
-    return {"has_destination": False}
-
-
 def simulate_driver(driver_id: str):
     waypoints = WAYPOINTS[driver_id]
-
+    
     print(f"[{driver_id}] Fetching road route from OSRM...")
-    loop_route = get_road_route(waypoints)
-    print(f"[{driver_id}] Route ready with {len(loop_route)} points")
-
+    route = get_road_route(waypoints)
+    print(f"[{driver_id}] Route ready with {len(route)} points")
+    
     step = 0
-    current_lat = loop_route[0]["lat"]
-    current_lng = loop_route[0]["lng"]
-
-    diversion_route = None
-    diversion_step = 0
-    active_dest = None  # last KNOWN destination state, persists between checks
-
-    check_counter = 0
 
     while True:
-        check_counter += 1
-
-        # Only actually call the API every 3rd cycle, but REUSE the last
-        # known result on the other cycles instead of assuming "no destination"
-        if check_counter % 3 == 0:
-            dest_info = check_destination(driver_id)
-            has_dest_now = dest_info.get("has_destination", False)
-        else:
-            has_dest_now = active_dest is not None
-            dest_info = {"has_destination": has_dest_now}
-            if has_dest_now:
-                dest_info["dest_lat"] = active_dest[0]
-                dest_info["dest_lng"] = active_dest[1]
-
-        if dest_info.get("has_destination"):
-            dest_lat = dest_info["dest_lat"]
-            dest_lng = dest_info["dest_lng"]
-
-            if active_dest != (dest_lat, dest_lng):
-                active_dest = (dest_lat, dest_lng)
-                print(f"[{driver_id}] New destination assigned, routing there...")
-                diversion_route = get_road_route([
-                    {"lat": current_lat, "lng": current_lng},
-                    {"lat": dest_lat, "lng": dest_lng}
-                ])
-                diversion_step = 0
-
-            if diversion_route and diversion_step < len(diversion_route):
-                location = diversion_route[diversion_step]
-                diversion_step += 1
-            else:
-                location = {"lat": dest_lat, "lng": dest_lng}
-
-        else:
-            if active_dest is not None:
-                print(f"[{driver_id}] Destination cleared, resuming normal route")
-            active_dest = None
-            diversion_route = None
-            diversion_step = 0
-
-            location = loop_route[step % len(loop_route)]
-            step += 1
-
-        current_lat = location["lat"]
-        current_lng = location["lng"]
+        location = route[step % len(route)]
         speed = round(random.uniform(20, 50), 1)
 
         payload = {
             "driver_id": driver_id,
-            "latitude": current_lat + random.uniform(-0.0002, 0.0002),
-            "longitude": current_lng + random.uniform(-0.0002, 0.0002),
+            "latitude": location["lat"] + random.uniform(-0.0002, 0.0002),
+            "longitude": location["lng"] + random.uniform(-0.0002, 0.0002),
             "speed": speed
         }
 
         try:
-            response = requests.post(f"{BASE_URL}/location", json=payload, timeout=5)
-            if response.status_code != 200:
+            response = requests.post(f"{BASE_URL}/location", json=payload)
+            if response.status_code == 200:
+                print(f"[{driver_id}] Step {step + 1}/{len(route)} → lat={payload['latitude']:.4f}, lng={payload['longitude']:.4f}, speed={speed} km/h ✓")
+            else:
                 print(f"[{driver_id}] Error: {response.status_code}")
         except Exception as e:
             print(f"[{driver_id}] Connection error: {e}")
             time.sleep(5)
             continue
 
-        time.sleep(0.8)
+        step += 1
 
+        time.sleep(0.8)
 
 if __name__ == "__main__":
     threads = []
@@ -170,6 +109,6 @@ if __name__ == "__main__":
         t.start()
         time.sleep(1)
 
-    print("All 3 drivers running with destination-aware routing...")
+    print("All 3 drivers running on real Hyderabad roads...")
     for t in threads:
         t.join()
