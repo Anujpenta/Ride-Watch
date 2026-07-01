@@ -82,6 +82,7 @@
         #result .row b { color: #4ade80; font-size: 15px; }
         #result .fare { font-size: 22px; color: #e94560; font-weight: bold; margin-top: 8px; }
         #hint { font-size: 12px; color: #777; margin-top: 4px; margin-bottom: 12px; }
+        #trip-status-label { font-size: 12px; color: #f97316; margin-top: 8px; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -122,6 +123,7 @@
                 <div class="row">Trip Distance: <b id="r-distance">—</b> km</div>
                 <div class="row">Estimated Time: <b id="r-duration">—</b> min</div>
                 <div class="fare" id="r-fare">—</div>
+                <div id="trip-status-label" id="trip-status-text">🔄 Tracking driver...</div>
             </div>
         </div>
     </div>
@@ -193,6 +195,8 @@
         let dropoffMarker = null;
         let tripLine = null;
         let activeMode = null;
+        let activeTripId = null;
+        let statusInterval = null;
 
         const btnPickup = document.getElementById('btn-pickup');
         const btnDropoff = document.getElementById('btn-dropoff');
@@ -241,9 +245,36 @@
             btnRequest.disabled = !(pickupPoint && dropoffPoint);
         });
 
+        async function pollTripStatus(tripId) {
+            try {
+                const res = await fetch(`/trip/status/${tripId}`);
+                const data = await res.json();
+
+                if (data.status === 'ok') {
+                    document.getElementById('r-pickup-dist').textContent = data.current_distance_km;
+                    
+                    if (data.driver_status === 'en_route_to_pickup') {
+                        document.getElementById('trip-status-label').textContent = 
+                            `🚖 Driver heading to pickup — ${data.current_distance_km} km away`;
+                    } else if (data.driver_status === 'on_trip') {
+                        document.getElementById('trip-status-label').textContent = 
+                            `🛣️ On trip — ${data.current_distance_km} km to dropoff`;
+                    } else if (data.driver_status === 'idle') {
+                        document.getElementById('trip-status-label').textContent = 
+                            `✅ Trip completed!`;
+                        clearInterval(statusInterval);
+                    }
+                }
+            } catch (err) {
+                console.error('Status poll failed:', err);
+            }
+        }
+
         btnRequest.addEventListener('click', async () => {
             btnRequest.disabled = true;
             btnRequest.textContent = 'Finding driver...';
+
+            if (statusInterval) clearInterval(statusInterval);
 
             try {
                 const res = await fetch('/ride/request', {
@@ -262,6 +293,8 @@
                 if (data.status === 'no_drivers_available') {
                     alert('No drivers available right now. Try again shortly.');
                 } else {
+                    activeTripId = data.trip_id;
+
                     document.getElementById('r-driver').textContent = data.driver_id;
                     document.getElementById('r-pickup-dist').textContent = data.driver_pickup_distance_km;
                     document.getElementById('r-distance').textContent = data.trip_distance_km;
@@ -274,6 +307,9 @@
                         [[data.driver_location.lat, data.driver_location.lng], pickupPoint, dropoffPoint],
                         { color: '#facc15', weight: 3, dashArray: '8,8' }
                     ).addTo(map);
+
+                    // Start polling every 3 seconds
+                    statusInterval = setInterval(() => pollTripStatus(activeTripId), 3000);
                 }
             } catch (err) {
                 alert('Request failed: ' + err);

@@ -8,9 +8,8 @@ import time
 from anomaly_detector import detect_anomalies
 from lstm_model import train_model, predict_anomalies
 from redis_client import publish_location
-from ride_matching import sync_drivers_from_locations, find_nearest_idle_driver
+from ride_matching import sync_drivers_from_locations, find_nearest_idle_driver, haversine_distance
 from fare_estimator import get_route_info, calculate_fare
-
 
 app = FastAPI()
 
@@ -293,13 +292,44 @@ def request_ride(ride: RideRequest, db: Session = Depends(get_db)):
 @app.get("/driver/destination/{driver_id}")
 def get_driver_destination(driver_id: str, db: Session = Depends(get_db)):
     driver = db.query(Driver).filter(Driver.driver_id == driver_id).first()
-    
+
     if not driver or driver.dest_lat is None or driver.dest_lng is None:
         return {"has_destination": False}
-    
+
     return {
         "has_destination": True,
         "status": driver.status,
         "dest_lat": driver.dest_lat,
         "dest_lng": driver.dest_lng
+    }
+
+
+@app.get("/trip/status/{trip_id}")
+def get_trip_status(trip_id: int, db: Session = Depends(get_db)):
+    sync_drivers_from_locations(db)
+
+    trip = db.query(Trip).filter(Trip.id == trip_id).first()
+    if not trip:
+        return {"status": "not_found"}
+
+    driver = db.query(Driver).filter(Driver.driver_id == trip.driver_id).first()
+    if not driver or driver.latitude is None:
+        return {"status": "driver_unavailable"}
+
+    if driver.status == "en_route_to_pickup":
+        target_lat, target_lng = trip.pickup_lat, trip.pickup_lng
+    else:
+        target_lat, target_lng = trip.dropoff_lat, trip.dropoff_lng
+
+    current_distance = haversine_distance(
+        driver.latitude, driver.longitude, target_lat, target_lng
+    )
+
+    return {
+        "status": "ok",
+        "trip_status": trip.status,
+        "driver_status": driver.status,
+        "driver_id": driver.driver_id,
+        "driver_location": {"lat": driver.latitude, "lng": driver.longitude},
+        "current_distance_km": round(current_distance, 2)
     }
