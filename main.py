@@ -296,11 +296,17 @@ def get_driver_destination(driver_id: str, db: Session = Depends(get_db)):
     if not driver or driver.dest_lat is None or driver.dest_lng is None:
         return {"has_destination": False}
 
+    active_trip = db.query(Trip).filter(
+        Trip.driver_id == driver_id,
+        Trip.status.in_(["matched", "in_progress"])
+    ).order_by(Trip.id.desc()).first()
+
     return {
         "has_destination": True,
         "status": driver.status,
         "dest_lat": driver.dest_lat,
-        "dest_lng": driver.dest_lng
+        "dest_lng": driver.dest_lng,
+        "trip_id": active_trip.id if active_trip else None
     }
 
 
@@ -333,3 +339,34 @@ def get_trip_status(trip_id: int, db: Session = Depends(get_db)):
         "driver_location": {"lat": driver.latitude, "lng": driver.longitude},
         "current_distance_km": round(current_distance, 2)
     }
+
+
+@app.post("/trip/arrive/{trip_id}")
+def arrive_at_destination(trip_id: int, db: Session = Depends(get_db)):
+    trip = db.query(Trip).filter(Trip.id == trip_id).first()
+    if not trip:
+        return {"status": "not_found"}
+
+    driver = db.query(Driver).filter(Driver.driver_id == trip.driver_id).first()
+    if not driver:
+        return {"status": "driver_not_found"}
+
+    if trip.status == "matched":
+        trip.status = "in_progress"
+        driver.status = "on_trip"
+        driver.dest_lat = trip.dropoff_lat
+        driver.dest_lng = trip.dropoff_lng
+        db.commit()
+        print(f"[{driver.driver_id}] Arrived at pickup, heading to dropoff")
+        return {"status": "in_progress", "next": "dropoff"}
+
+    elif trip.status == "in_progress":
+        trip.status = "completed"
+        driver.status = "idle"
+        driver.dest_lat = None
+        driver.dest_lng = None
+        db.commit()
+        print(f"[{driver.driver_id}] Trip completed, back to idle")
+        return {"status": "completed"}
+
+    return {"status": "no_action"}

@@ -66,8 +66,19 @@ def get_road_route(waypoints):
         return waypoints
 
 
+def find_nearest_step(loop_route, current_lat, current_lng):
+    """Find the closest point in the loop to resume from."""
+    min_dist = float("inf")
+    nearest_step = 0
+    for i, point in enumerate(loop_route):
+        dist = ((point["lat"] - current_lat) ** 2 + (point["lng"] - current_lng) ** 2) ** 0.5
+        if dist < min_dist:
+            min_dist = dist
+            nearest_step = i
+    return nearest_step
+
+
 def check_destination(driver_id):
-    """Ask the API if this driver has been assigned a ride destination."""
     try:
         response = requests.get(f"{BASE_URL}/driver/destination/{driver_id}", timeout=5)
         if response.status_code == 200:
@@ -75,6 +86,18 @@ def check_destination(driver_id):
     except Exception as e:
         print(f"[{driver_id}] Destination check failed: {e}")
     return {"has_destination": False}
+
+
+def notify_arrival(driver_id, trip_id):
+    try:
+        response = requests.post(f"{BASE_URL}/trip/arrive/{trip_id}", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            print(f"[{driver_id}] Arrival notified → {data['status']}")
+            return data
+    except Exception as e:
+        print(f"[{driver_id}] Arrival notification failed: {e}")
+    return None
 
 
 def simulate_driver(driver_id: str):
@@ -90,51 +113,141 @@ def simulate_driver(driver_id: str):
 
     diversion_route = None
     diversion_step = 0
-    active_dest = None  # last KNOWN destination state, persists between checks
-
+    active_dest = None
+    active_trip_id = None
     check_counter = 0
+    returning_to_loop = False  # True when routing back to loop after trip
 
     while True:
         check_counter += 1
+        use_loop = False
+        location = None
 
-        # Only actually call the API every 3rd cycle, but REUSE the last
-        # known result on the other cycles instead of assuming "no destination"
-        if check_counter % 3 == 0:
-            dest_info = check_destination(driver_id)
-            has_dest_now = dest_info.get("has_destination", False)
-        else:
-            has_dest_now = active_dest is not None
-            dest_info = {"has_destination": has_dest_now}
-            if has_dest_now:
-                dest_info["dest_lat"] = active_dest[0]
-                dest_info["dest_lng"] = active_dest[1]
-
-        if dest_info.get("has_destination"):
-            dest_lat = dest_info["dest_lat"]
-            dest_lng = dest_info["dest_lng"]
-
-            if active_dest != (dest_lat, dest_lng):
-                active_dest = (dest_lat, dest_lng)
-                print(f"[{driver_id}] New destination assigned, routing there...")
-                diversion_route = get_road_route([
-                    {"lat": current_lat, "lng": current_lng},
-                    {"lat": dest_lat, "lng": dest_lng}
-                ])
-                diversion_step = 0
-
+        # --- RETURNING TO LOOP MODE ---
+        # After trip completes, driver routes back to loop via real roads
+        if returning_to_loop:
             if diversion_route and diversion_step < len(diversion_route):
                 location = diversion_route[diversion_step]
                 diversion_step += 1
             else:
-                location = {"lat": dest_lat, "lng": dest_lng}
+                # Reached loop re-entry point — resume normal loop
+                print(f"[{driver_id}] Back on normal loop route!")
+                returning_to_loop = False
+                diversion_route = None
+                diversion_step = 0
+                use_loop = True
 
+        # --- NORMAL / TRIP MODE ---
         else:
-            if active_dest is not None:
-                print(f"[{driver_id}] Destination cleared, resuming normal route")
-            active_dest = None
-            diversion_route = None
-            diversion_step = 0
+            # Poll API every 3rd cycle, reuse known state otherwise
+            if check_counter % 3 == 0:
+                dest_info = check_destination(driver_id)
+            else:
+                has_dest = active_dest is not None
+                dest_info = {"has_destination": has_dest}
+                if has_dest:
+                    dest_info["dest_lat"] = active_dest[0]
+                    dest_info["dest_lng"] = active_dest[1]
+                    dest_info["trip_id"] = active_trip_id
 
+            if dest_info.get("has_destination"):
+                dest_lat = dest_info["dest_lat"]
+                dest_lng = dest_info["dest_lng"]
+                trip_id = dest_info.get("trip_id")
+
+                # New destination detected — compute fresh OSRM route
+                if active_dest != (dest_lat, dest_lng):
+                    active_dest = (dest_lat, dest_lng)
+                    active_trip_id = trip_id
+                    print(f"[{driver_id}] New destination (trip {trip_id}), routing there...")
+                    diversion_route = get_road_route([
+                        {"lat": current_lat, "lng": current_lng},
+                        {"lat": dest_lat, "lng": dest_lng}
+                    ])
+                    diversion_step = 0
+
+                if diversion_route and diversion_step < len(diversion_route):
+                    # Still on the way to destination
+                    location = diversion_route[diversion_step]
+                    diversion_step += 1
+
+                else:
+                    # Reached destination — notify API
+                    if active_trip_id is not None:
+                        result = notify_arrival(driver_id, active_trip_id)
+
+                        if result and result.get("status") == "in_progress":
+                            # Arrived at PICKUP → API has now set dest to dropoff
+                            # Reset so next check picks up dropoff destination smoothly
+                            print(f"[{driver_id}] Pickup reached! Now routing to dropoff...")
+                            active_dest = None
+                            active_trip_id = None
+                            diversion_route = None
+                            diversion_step = 0
+                            check_counter = 2  # next cycle: 3 % 3 == 0 → immediate fresh check
+                            location = {"lat": current_lat, "lng": current_lng}
+
+                        elif result and result.get("status") == "completed":
+                            # Arrived at DROPOFF → route back to loop via real roads
+                            print(f"[{driver_id}] Trip completed! Routing back to loop via roads...")
+                            nearest = find_nearest_step(loop_route, current_lat, current_lng)
+                            nearest_point = loop_route[nearest]
+                            diversion_route = get_road_route([
+                                {"lat": current_lat, "lng": current_lng},
+                                {"lat": nearest_point["lat"], "lng": nearest_point["lng"]}
+                            ])
+                            diversion_step = 0
+                            step = nearest
+                            active_dest = None
+                            active_trip_id = None
+                            returning_to_loop = True
+                            location = {"lat": current_lat, "lng": current_lng}
+
+                        else:
+                            # Unexpected — just resume loop
+                            active_dest = None
+                            active_trip_id = None
+                            diversion_route = None
+                            diversion_step = 0
+                            check_counter = 0
+                            use_loop = True
+
+                    else:
+                        # No trip ID — resume loop
+                        active_dest = None
+                        diversion_route = None
+                        diversion_step = 0
+                        use_loop = True
+
+            else:
+                # No destination — normal loop
+                if active_dest is not None:
+                    # Was on a trip but destination cleared unexpectedly
+                    print(f"[{driver_id}] Destination cleared, routing back to loop...")
+                    nearest = find_nearest_step(loop_route, current_lat, current_lng)
+                    nearest_point = loop_route[nearest]
+                    diversion_route = get_road_route([
+                        {"lat": current_lat, "lng": current_lng},
+                        {"lat": nearest_point["lat"], "lng": nearest_point["lng"]}
+                    ])
+                    diversion_step = 0
+                    step = nearest
+                    active_dest = None
+                    active_trip_id = None
+                    returning_to_loop = True
+                    location = {"lat": current_lat, "lng": current_lng}
+                else:
+                    active_dest = None
+                    active_trip_id = None
+                    diversion_route = None
+                    diversion_step = 0
+                    use_loop = True
+
+        if use_loop:
+            location = loop_route[step % len(loop_route)]
+            step += 1
+
+        if location is None:
             location = loop_route[step % len(loop_route)]
             step += 1
 
@@ -170,6 +283,6 @@ if __name__ == "__main__":
         t.start()
         time.sleep(1)
 
-    print("All 3 drivers running with destination-aware routing...")
+    print("All 3 drivers running with automatic trip lifecycle...")
     for t in threads:
         t.join()
